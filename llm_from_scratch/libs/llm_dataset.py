@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 from llm_from_scratch.libs.tokenizer import Tokenizer
 
-class GPTDataset(Dataset):
+class LLMDataset(Dataset):
     def __init__(self, tokenizer: Tokenizer, documents:list[str], max_length:int, stride:int):
 
         self.input_ids = []

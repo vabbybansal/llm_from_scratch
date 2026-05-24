@@ -1,10 +1,10 @@
 import unittest
 
-from llm_from_scratch.libs.gpt_dataset import GPTDataset
+from llm_from_scratch.libs.llm_dataset import LLMDataset
 from llm_from_scratch.libs.tokenizer import Tokenizer
 
 
-class TestGPTDataset(unittest.TestCase):
+class TestLLMDataset(unittest.TestCase):
     ENCODING = "gpt2"
 
     def setUp(self):
@@ -23,14 +23,14 @@ class TestGPTDataset(unittest.TestCase):
     def test_len_matches_sliding_window_count(self):
         token_ids = self._expected_token_ids()
         expected_len = len(range(0, len(token_ids) - self.max_length, self.stride))
-        dataset = GPTDataset(
+        dataset = LLMDataset(
             self.tokenizer, self.documents, self.max_length, self.stride
         )
 
         self.assertEqual(len(dataset), expected_len)
 
     def test_getitem_returns_tensors_with_correct_shape(self):
-        dataset = GPTDataset(
+        dataset = LLMDataset(
             self.tokenizer, self.documents, self.max_length, stride=1
         )
         input_ids, target_ids = dataset[0]
@@ -40,7 +40,7 @@ class TestGPTDataset(unittest.TestCase):
 
     def test_all_windows_match_expected_token_ids(self):
         token_ids = self._expected_token_ids()
-        dataset = GPTDataset(
+        dataset = LLMDataset(
             self.tokenizer, self.documents, self.max_length, self.stride
         )
 
@@ -67,7 +67,7 @@ class TestGPTDataset(unittest.TestCase):
         self.assertEqual(token_ids[first_doc_end], eos_id)
 
     def test_empty_dataset_when_sequence_shorter_than_max_length(self):
-        dataset = GPTDataset(self.tokenizer, ["a"], max_length=100, stride=1)
+        dataset = LLMDataset(self.tokenizer, ["a"], max_length=100, stride=1)
 
         self.assertEqual(len(dataset), 0)
 
