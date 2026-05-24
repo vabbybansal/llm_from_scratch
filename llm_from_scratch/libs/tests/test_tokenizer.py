@@ -26,6 +26,14 @@ class TestTokenizer(unittest.TestCase):
     def test_decode_empty_list(self):
         self.assertEqual(self.tokenizer.decode([]), "")
 
+    def test_eos_token_id_is_int(self):
+        self.assertIsInstance(self.tokenizer.get_eos_token_id(), int)
+
+    def test_eos_token_roundtrip(self):
+        eos_id = self.tokenizer.get_eos_token_id()
+
+        self.assertEqual(self.tokenizer.decode([eos_id]), self.tokenizer.get_eos_string())
+
 
 if __name__ == "__main__":
     unittest.main()
