@@ -1,0 +1,12 @@
+[project]
+name = "llm-from-scratch"
+version = "0.1.0"
+dependencies = ["tiktoken"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_from_scratch*"]
