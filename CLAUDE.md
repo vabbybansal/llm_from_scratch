@@ -55,3 +55,7 @@ LayerNorm (built-in) ┘
 - `Tokenizer` (`libs/tokenizer.py`): thin wrapper around tiktoken using `gpt2` encoding by default.
 
 **Notebooks** in `llm_from_scratch/scripts/` explore concepts interactively: `self_attention.ipynb`, `layer_norm.ipynb`, and `gpt.ipynb` (includes autoregressive generation visualization).
+
+## Testing
+
+When writing unit tests, write only the bare minimum required — the smallest set of cases that would catch a real regression. Do not add exhaustive edge cases, happy-path variations, or tests that duplicate coverage.
