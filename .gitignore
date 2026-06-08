@@ -28,3 +28,9 @@ htmlcov/
 
 # Generated visualizations (not tracked)
 viz/
+
+# Weights & Biases
+wandb/
+
+# Training artifacts
+checkpoints/

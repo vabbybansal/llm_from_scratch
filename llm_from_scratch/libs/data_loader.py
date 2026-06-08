@@ -37,8 +37,9 @@ def create_dataloaders(
     max_length: int = 256,
     stride: int = 128,
     num_workers: int = 0,
+    tokenizer_model: str = "gpt2",
 ) -> dict[str, DataLoader]:
-    tokenizer = Tokenizer(model_name="gpt2")
+    tokenizer = Tokenizer(model_name=tokenizer_model)
     data_loaders = {}
     for split in ["train", "validation", "test"]:
         texts = load_wikitext103(split)
