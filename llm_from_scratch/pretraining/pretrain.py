@@ -11,7 +11,7 @@ model = GPT(
     n_heads=6,
 )
 
-dataloaders = create_dataloaders(batch_size=6, max_length=256, stride=128)
+dataloaders = create_dataloaders(batch_size=8, max_length=256, stride=128)
 
 trainer = PreTrainLanguageModelDriver(
     model,
