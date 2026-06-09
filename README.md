@@ -3,3 +3,6 @@ python -m unittest discover -s llm_from_scratch/ -v
 
 ## Run system metrics
 mactop
+
+## Run PreTrain
+caffeinate -i python llm_from_scratch/scripts/pretrain.py

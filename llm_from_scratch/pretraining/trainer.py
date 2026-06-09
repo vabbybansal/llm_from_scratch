@@ -1,18 +1,19 @@
 import os
-import csv
 import math
 import torch
-import wandb
 from tqdm import tqdm
 
 from llm_from_scratch.libs.tokenizer import Tokenizer
 from llm_from_scratch.libs.utils import get_device, generate_text
+from llm_from_scratch.pretraining.logger import TrainingLogger
+
 
 class PreTrainLanguageModelDriver():
     def __init__(self, model, dataloaders: dict, optimizer=None, epochs=10, lr=1e-4,
                  checkpoint_dir="checkpoints", peek=True, peek_every_n_steps=500,
-                 peek_prompts=("The earth is not flat because", "King minus female equals"),
-                 tokenizer_model="gpt2", wandb_project="llm-from-scratch"):
+                 peek_prompts=("The earth is not flat because", "King minus male plus female equals"),
+                 tokenizer_model="gpt2", wandb_project="llm-from-scratch",
+                 val_every_n_steps=2000, val_batches=500):
         self.epochs = epochs
         self.device = get_device()
         self.model = model.to(self.device)
@@ -23,11 +24,12 @@ class PreTrainLanguageModelDriver():
         self.peek_every_n_steps = peek_every_n_steps
         self.peek_prompts = peek_prompts
         self.tokenizer = Tokenizer(model_name=tokenizer_model)
-        wandb.init(project=wandb_project)
-        self.log_path = os.path.join(checkpoint_dir, "metrics.csv")
+        self.val_every_n_steps = val_every_n_steps
+        self.val_batches = val_batches
         os.makedirs(checkpoint_dir, exist_ok=True)
-        with open(self.log_path, "w", newline="") as f:
-            csv.writer(f).writerow(["epoch", "step", "train_loss", "val_loss", "val_perplexity"])
+        self.logger = TrainingLogger(checkpoint_dir, wandb_project)
+        self.peek_log_path = os.path.join(checkpoint_dir, "peek.txt")
+        open(self.peek_log_path, "w").close()  # clear on each run
 
     def calculate_loss_lm(self, batch) -> torch.tensor:
         '''
@@ -37,12 +39,12 @@ class PreTrainLanguageModelDriver():
         Since p is one hot encoded, this boils down to calculating -∑logq just for the target tokens.
         Essentially, how different is the distribution of the target labels and the output prob dist.
         '''
-        x,y = batch
-        x,y = x.to(self.device), y.to(self.device)
+        x, y = batch
+        x, y = x.to(self.device), y.to(self.device)
         logits = self.model(x)
         # logits: (batch, seq, vocab) -> (batch*seq, vocab); y: (batch, seq) -> (batch*seq,)
         # cross_entropy looks up y[i] as the correct class index and computes -log(softmax(logits[i])[y[i]])
-        loss = torch.nn.functional.cross_entropy(logits.flatten(0,1), y.flatten())
+        loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), y.flatten())
         return loss
 
     def peek_generate(self, step, epoch):
@@ -53,12 +55,18 @@ class PreTrainLanguageModelDriver():
         print(f"\n{sep}")
         print(f"Peek | epoch {epoch}, step {step}")
         print(sep)
+        lines = []
         for i, prompt in enumerate(self.peek_prompts, 1):
             input_ids = torch.tensor(self.tokenizer.encode(prompt)).unsqueeze(0).to(self.device)
             output_ids = generate_text(self.model, input_ids, max_new_tokens=50,
                                        context_size=self.model.pos_emb.num_embeddings)
-            print(f"\nPeek {i}: {self.tokenizer.decode(output_ids[0].tolist())}")
+            line = f"Peek {i}: {self.tokenizer.decode(output_ids[0].tolist())}"
+            print(f"\n{line}")
+            lines.append(line)
         print(f"\n{sep}\n")
+        with open(self.peek_log_path, "a") as f:
+            f.write(f"\n{sep}\nPeek | epoch {epoch}, step {step}\n{sep}\n")
+            f.write("\n".join(lines) + "\n")
         self.model.train()
 
     def train(self):
@@ -72,32 +80,36 @@ class PreTrainLanguageModelDriver():
                 loss = self.calculate_loss_lm(batch)
                 loss.backward()
                 self.optimizer.step()
-                pbar.set_postfix(loss=f"{loss.item():.4f}")
-                wandb.log({"train/loss": loss.item(), "epoch": epoch}, step=global_step)
-                with open(self.log_path, "a", newline="") as f:
-                    csv.writer(f).writerow([epoch, global_step, f"{loss.item():.4f}", "", ""])
+                train_ppl = self.logger.log_train(epoch, global_step, loss.item())
+                pbar.set_postfix(loss=f"{loss.item():.4f}", ppl=f"{train_ppl:.1f}")
                 global_step += 1
 
                 if i % self.peek_every_n_steps == 0:
                     self.peek_generate(i, epoch)
-            self.eval(epoch, global_step)
+                if global_step % self.val_every_n_steps == 0:
+                    self.eval(epoch, global_step, end_of_epoch=False)
+                    self.model.train()
 
-    def eval(self, epoch, global_step):
+            self.eval(epoch, global_step, end_of_epoch=True)
+
+    def eval(self, epoch, global_step, end_of_epoch=True):
         self.model.eval()
 
         total_loss = torch.tensor(0.0).to(self.device)
+        val_loader = self.dataloaders['validation']
 
         with torch.no_grad():
-            for batch in self.dataloaders['validation']:
+            for n, batch in enumerate(val_loader):
+                if not end_of_epoch and n >= self.val_batches:
+                    break
                 total_loss += self.calculate_loss_lm(batch)
-            loss = total_loss / len(self.dataloaders['validation'])
+        batches_used = len(val_loader) if end_of_epoch else min(len(val_loader), self.val_batches)
+        loss = total_loss / batches_used
 
-        perplexity = math.exp(loss.item())
-        print(f"\nEval Loss | epoch {epoch}, loss {loss.item():.4f}, perplexity {perplexity:.2f}")
-        wandb.log({"val/loss": loss.item(), "val/perplexity": perplexity, "epoch": epoch}, step=global_step)
-        with open(self.log_path, "a", newline="") as f:
-            csv.writer(f).writerow([epoch, global_step, "", f"{loss.item():.4f}", f"{perplexity:.2f}"])
-        self.save_checkpoint(epoch, loss.item())
+        self.logger.log_val(epoch, global_step, loss.item(), end_of_epoch, self.val_batches)
+
+        if end_of_epoch:
+            self.save_checkpoint(epoch, loss.item())
 
     def save_checkpoint(self, epoch, loss):
         os.makedirs(self.checkpoint_dir, exist_ok=True)
