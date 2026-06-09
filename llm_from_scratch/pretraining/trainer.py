@@ -2,7 +2,6 @@ import os
 import math
 import torch
 from tqdm import tqdm
-
 from llm_from_scratch.libs.tokenizer import Tokenizer
 from llm_from_scratch.libs.utils import get_device, generate_text
 from llm_from_scratch.pretraining.logger import TrainingLogger
@@ -52,18 +51,18 @@ class PreTrainLanguageModelDriver():
             return
         self.model.eval()
         sep = "─" * 60
-        print(f"\n{sep}")
-        print(f"Peek | epoch {epoch}, step {step}")
-        print(sep)
+        tqdm.write(f"\n{sep}")
+        tqdm.write(f"Peek | epoch {epoch}, step {step}")
+        tqdm.write(sep)
         lines = []
         for i, prompt in enumerate(self.peek_prompts, 1):
             input_ids = torch.tensor(self.tokenizer.encode(prompt)).unsqueeze(0).to(self.device)
             output_ids = generate_text(self.model, input_ids, max_new_tokens=50,
                                        context_size=self.model.pos_emb.num_embeddings)
             line = f"Peek {i}: {self.tokenizer.decode(output_ids[0].tolist())}"
-            print(f"\n{line}")
+            tqdm.write(f"\n{line}")
             lines.append(line)
-        print(f"\n{sep}\n")
+        tqdm.write(f"\n{sep}\n")
         with open(self.peek_log_path, "a") as f:
             f.write(f"\n{sep}\nPeek | epoch {epoch}, step {step}\n{sep}\n")
             f.write("\n".join(lines) + "\n")
@@ -84,8 +83,8 @@ class PreTrainLanguageModelDriver():
                 pbar.set_postfix(loss=f"{loss.item():.4f}", ppl=f"{train_ppl:.1f}")
                 global_step += 1
 
-                if i % self.peek_every_n_steps == 0:
-                    self.peek_generate(i, epoch)
+                if global_step % self.peek_every_n_steps == 0:
+                    self.peek_generate(global_step, epoch)
                 if global_step % self.val_every_n_steps == 0:
                     self.eval(epoch, global_step, end_of_epoch=False)
                     self.model.train()
