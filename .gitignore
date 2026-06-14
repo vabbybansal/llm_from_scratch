@@ -34,3 +34,6 @@ wandb/
 
 # Training artifacts
 checkpoints/
+
+# Personal notes
+notes/
