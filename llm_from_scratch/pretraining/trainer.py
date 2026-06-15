@@ -3,7 +3,7 @@ import math
 import torch
 from tqdm import tqdm
 from llm_from_scratch.libs.tokenizer import Tokenizer
-from llm_from_scratch.libs.utils import get_device, generate_text
+from llm_from_scratch.libs.utils import get_device, generate
 from llm_from_scratch.pretraining.logger import TrainingLogger
 
 
@@ -57,8 +57,8 @@ class PreTrainLanguageModelDriver():
         lines = []
         for i, prompt in enumerate(self.peek_prompts, 1):
             input_ids = torch.tensor(self.tokenizer.encode(prompt)).unsqueeze(0).to(self.device)
-            output_ids = generate_text(self.model, input_ids, max_new_tokens=50,
-                                       context_size=self.model.pos_emb.num_embeddings)
+            output_ids = generate(self.model, input_ids, max_new_tokens=50,
+                                  context_size=self.model.pos_emb.num_embeddings, temperature=0.8, top_k=50)
             line = f"Peek {i}: {self.tokenizer.decode(output_ids[0].tolist())}"
             tqdm.write(f"\n{line}")
             lines.append(line)
