@@ -1,22 +1,33 @@
 from llm_from_scratch.libs.gpt import GPT
 from llm_from_scratch.libs.data_loader import create_dataloaders
 from llm_from_scratch.pretraining.trainer import PreTrainLanguageModelDriver
+from llm_from_scratch.libs.constants import GPT2_SMALL, GPT2_MEDIUM, GPT2_LARGE
+from llm_from_scratch.pretraining.load_weights import load_gpt2_weights
 
-model = GPT(
-    vocab_size=50257,
-    n_layers=6,
-    d_in=384,
-    context_length=256,
-    dropout=0.1,
-    n_heads=6,
-)
+# model = GPT(
+#     vocab_size=50257,
+#     n_layers=6,
+#     d_in=384,
+#     context_length=256,
+#     dropout=0.1,
+#     n_heads=6,
+# )
 
-dataloaders = create_dataloaders(batch_size=8, max_length=256, stride=128)
+# To load GPT-2 pretrained weights instead of training from scratch:
+# model = GPT(**GPT2_SMALL); model = load_gpt2_weights(model)
+# model = GPT(**GPT2_MEDIUM)
+# model = load_gpt2_weights(model, "gpt2-medium")
+
+model = GPT(**GPT2_LARGE)
+model = load_gpt2_weights(model, "gpt2-large")
+
+
+dataloaders = create_dataloaders(batch_size=4, max_length=256, stride=128)
 
 trainer = PreTrainLanguageModelDriver(
     model,
     dataloaders,
-    epochs=6,
+    epochs=1,
     lr=3e-4,
     peek=True,
     peek_every_n_steps=2000,

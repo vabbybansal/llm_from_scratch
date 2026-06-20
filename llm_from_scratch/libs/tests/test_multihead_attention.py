@@ -67,7 +67,7 @@ class TestMultiHeadAttention(unittest.TestCase):
         loss.backward()
 
         self.assertIsNotNone(x.grad)
-        self.assertIsNotNone(self.attn.Wq.weight.grad)
+        self.assertIsNotNone(self.attn.c_attn.weight.grad)
 
     def test_dropout_zero_is_deterministic_in_eval(self):
         out_a = self.attn(self.x)

@@ -41,8 +41,8 @@ class TestGPT(unittest.TestCase):
         logits = self.model(self.token_ids)
         logits.sum().backward()
 
-        self.assertIsNotNone(self.model.token_emb.weight.grad)
-        self.assertIsNotNone(self.model.out_head.weight.grad)
+        self.assertIsNotNone(self.model.tok_emb.weight.grad)
+        self.assertIsNotNone(self.model.lm_head.weight.grad)
 
     def test_deterministic_in_eval(self):
         out_a = self.model(self.token_ids)
@@ -51,7 +51,7 @@ class TestGPT(unittest.TestCase):
         torch.testing.assert_close(out_a, out_b)
 
     def test_tied_weights_share_embedding(self):
-        self.assertIs(self.model.out_head.weight, self.model.token_emb.weight)
+        self.assertIs(self.model.lm_head.weight, self.model.tok_emb.weight)
 
     def test_raises_when_seq_len_exceeds_context_length(self):
         long_ids = torch.randint(

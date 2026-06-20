@@ -16,23 +16,23 @@ class TransformerBlock(torch.nn.Module):
             n_heads=n_heads,
             qkv_bias=qkv_bias,
         )
-        self.ff = FeedForward(emb_dim=d_in)
-        self.norm1 = torch.nn.LayerNorm(d_in)
-        self.norm2 = torch.nn.LayerNorm(d_in)
+        self.mlp = FeedForward(emb_dim=d_in)
+        self.ln_1 = torch.nn.LayerNorm(d_in)
+        self.ln_2 = torch.nn.LayerNorm(d_in)
         self.drop_shortcut = torch.nn.Dropout(dropout)
 
     def forward(self, x):
         residual = x
 
-        x = self.norm1(x)
+        x = self.ln_1(x)
         x = self.attn(x)
         x = self.drop_shortcut(x)
 
         x = x + residual
 
         residual = x
-        x = self.norm2(x)
-        x = self.ff(x)
+        x = self.ln_2(x)
+        x = self.mlp(x)
         x = self.drop_shortcut(x)
         x = x + residual
 
