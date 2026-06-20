@@ -70,6 +70,7 @@ class PreTrainLanguageModelDriver():
 
     def train(self):
         global_step = 0
+        self.peek_generate(global_step, epoch=0)
 
         for epoch in range(self.epochs):
             self.model.train()
