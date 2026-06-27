@@ -2,7 +2,7 @@ import os
 import math
 import torch
 from tqdm import tqdm
-from llm_from_scratch.libs.tokenizer import Tokenizer
+from llm_from_scratch.pretraining.data.tokenizer import Tokenizer
 from llm_from_scratch.libs.utils import get_device, generate
 from llm_from_scratch.pretraining.logger import TrainingLogger
 

@@ -1,7 +1,7 @@
 import unittest
 
-from llm_from_scratch.libs.llm_dataset import LLMDataset
-from llm_from_scratch.libs.tokenizer import Tokenizer
+from llm_from_scratch.pretraining.data.llm_dataset import LLMDataset
+from llm_from_scratch.pretraining.data.tokenizer import Tokenizer
 
 
 class TestLLMDataset(unittest.TestCase):

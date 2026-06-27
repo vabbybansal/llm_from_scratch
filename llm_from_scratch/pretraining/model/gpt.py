@@ -1,6 +1,6 @@
 import torch
 
-from llm_from_scratch.libs.transformer_block import TransformerBlock
+from llm_from_scratch.pretraining.model.transformer_block import TransformerBlock
 
 class GPT(torch.nn.Module):
     def __init__(

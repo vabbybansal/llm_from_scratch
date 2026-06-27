@@ -1,6 +1,6 @@
 from transformers import GPT2Model
-from llm_from_scratch.libs.gpt import GPT
-from llm_from_scratch.libs.constants import GPT2_SMALL
+from llm_from_scratch.pretraining.model.gpt import GPT
+from llm_from_scratch.pretraining.model.constants import GPT2_SMALL
 
 
 def load_gpt2_weights(model: GPT, hf_model_name: str = "gpt2") -> GPT:

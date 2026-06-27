@@ -1,6 +1,10 @@
 import torch
 
 
+# TODO (cross-stage / future): this lives in shared libs/ but is currently GPT-specific —
+#   it assumes model(x) returns a raw logits tensor and takes an explicit context_size.
+#   Plan: extend it to be model-agnostic (normalize HF `.logits`, accept context_size) so SFT/DPO
+#   can share one inference path, then deprecate the HF-native generate in load_pretrained_hf_model.py.
 # TODO (not production-ready — gaps vs lab inference):
 # 1. No KV cache — recomputes attention for all tokens every step (O(n^2) cost); labs cache past K/V
 # 2. No padding mask — finished sequences in a batch keep running wasted compute instead of being masked out

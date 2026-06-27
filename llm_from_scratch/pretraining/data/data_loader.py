@@ -3,8 +3,8 @@ from urllib.request import urlopen
 
 from torch.utils.data import DataLoader
 
-from llm_from_scratch.libs.llm_dataset import LLMDataset
-from llm_from_scratch.libs.tokenizer import Tokenizer
+from llm_from_scratch.pretraining.data.llm_dataset import LLMDataset
+from llm_from_scratch.pretraining.data.tokenizer import Tokenizer
 
 TINY_SHAKESPEARE_URL = (
     "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"

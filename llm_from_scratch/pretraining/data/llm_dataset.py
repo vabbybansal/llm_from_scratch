@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset
-from llm_from_scratch.libs.tokenizer import Tokenizer
+from llm_from_scratch.pretraining.data.tokenizer import Tokenizer
 
 class LLMDataset(Dataset):
     def __init__(self, tokenizer: Tokenizer, documents:list[str], max_length:int, stride:int):

@@ -1,5 +1,5 @@
 import unittest
-from llm_from_scratch.libs.tokenizer import Tokenizer
+from llm_from_scratch.pretraining.data.tokenizer import Tokenizer
 
 
 class TestTokenizer(unittest.TestCase):

@@ -1,4 +1,4 @@
-from llm_from_scratch.libs.data_loader import create_dataloaders
+from llm_from_scratch.pretraining.data.data_loader import create_dataloaders
 
 
 def main() -> None:
