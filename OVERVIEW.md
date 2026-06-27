@@ -1,7 +1,6 @@
 # llm_from_scratch — Components & Sticking Points
 
-A high-level map of the codebase and the key challenges / things-to-remember, organized by phase.
-This is the **index** — a high-level map of the codebase plus the key challenges encountered while building it.
+The **index**: a high-level map of the codebase plus the key challenges encountered while building it, organized by phase.
 
 ---
 
@@ -32,7 +31,6 @@ The point is to *understand every moving part*, not to build a production model.
 | `PreTrainLanguageModelDriver` | `pretraining/trainer.py` | train/eval loop, loss, peek-generation, checkpoint |
 | `TrainingLogger` | `pretraining/logger.py` | CSV + wandb sinks, perplexity |
 | `load_gpt2_weights` | `pretraining/load_weights.py` | load OpenAI GPT-2 weights into the custom `GPT` |
-| `generate` | `libs/utils.py` | autoregressive sampling (temp, top-k/p, eos, rep-penalty) |
 
 ### Post-training / SFT (`supervised_fine_tuning/`)
 
@@ -45,6 +43,15 @@ The point is to *understand every moving part*, not to build a production model.
 | `create_sft_dataloaders` | `sft_dataset.py` | load/filter/split Tulu-3, build loaders |
 | `SupervisedFineTuner` | `fine_tuner.py` | train/eval loop, LR schedule, grad clip, checkpoint, peek |
 | `finetune.py` | `finetune.py` | entry point wiring it all together |
+
+### Shared (`libs/`)
+
+After the reorg, `libs/` holds only genuinely cross-stage utilities (the from-scratch GPT stack moved into `pretraining/`).
+
+| Component | File | Role |
+|---|---|---|
+| `get_device` | `libs/utils.py` | pick the device (cuda > mps > cpu) |
+| `generate` | `libs/utils.py` | autoregressive sampling (temp, top-k/p, eos, rep-penalty) — currently GPT-shaped, intended to become the cross-stage inference path (see TODOs) |
 
 ---
 
