@@ -15,7 +15,37 @@ The point is to *understand every moving part*, not to build a production model.
 
 ---
 
-## 2. Component map
+## 2. Results — evidence it worked
+
+### SFT: base model → instruction-follower (~1 hr, 20K-example Tulu-3 subset)
+
+The clearest signal is **peek-generation** — sampling the same fixed prompts throughout training. The base Llama-3.2-1B (which has never seen the chat format) goes from gibberish to coherent, on-task answers (peeks condensed):
+
+**Step 0 — base model, chat format unfamiliar:**
+```
+[What is the capital of France?]
+  -> iteDatabaseBeginInitdropIfExists iteDatabaseBeginInit itageBeginInit ...
+```
+
+**Step ~2400 — end of one epoch:**
+```
+[What is the capital of France?]
+  -> Paris is the capital of France.
+[Write a haiku about the ocean.]
+  -> The sea is blue. / The waves are crashing. / The water is salty and clear.
+[Explain the difference between machine learning and deep learning.]
+  -> Machine learning is a type of supervised learning ... Deep learning ... uses neural networks ...
+```
+
+Notably the **training loss barely moves** — the base model is already a strong language model, so SFT isn't teaching it language, it's teaching the **chat format + "answer the instruction" behavior**. That's invisible in the loss curve and obvious in the peeks. Final validation loss ≈ **1.23** (perplexity ≈ **3.4**).
+
+### Pretraining: perplexity as the success signal
+
+The from-scratch GPT has no instruction behavior to eyeball, so the metric is **validation perplexity = `exp(val cross-entropy)`** — the effective number of equally-likely tokens the model weighs per step (lower = more confident). It starts near chance and falls steadily (logged live to wandb + `checkpoints/metrics.csv`); the ~30M-param model lands around **perplexity ≈ 30**, roughly GPT-2-small's range (a 4× larger model) — a strong result at this scale. Peek samples (`checkpoints/peek.txt`) read as progressively more fluent English as the curve drops.
+
+---
+
+## 3. Component map
 
 ### Pretraining (custom GPT, `pretraining/`)
 
@@ -55,7 +85,7 @@ After the reorg, `libs/` holds only genuinely cross-stage utilities (the from-sc
 
 ---
 
-## 3. Sticking points & things to keep in mind
+## 4. Sticking points & things to keep in mind
 
 > Concise pointers, expanded where the *why* isn't obvious.
 
@@ -140,7 +170,7 @@ The post-training base was swapped from the scratch GPT-2 to a pretrained **Llam
 
 ---
 
-## 4. Where to look next
+## 5. Where to look next
 
 - **Architecture & commands:** [`CLAUDE.md`](CLAUDE.md).
-- **Code:** the component tables in §2 map each concept to its file.
+- **Code:** the component tables in §3 map each concept to its file.
