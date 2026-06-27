@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from llm_from_scratch.libs.gpt import GPT
+from llm_from_scratch.pretraining.model.gpt import GPT
 
 
 class TestGPT(unittest.TestCase):

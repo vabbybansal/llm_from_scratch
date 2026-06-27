@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from llm_from_scratch.libs.multihead_attention import MultiHeadAttention
+from llm_from_scratch.pretraining.model.multihead_attention import MultiHeadAttention
 
 
 class TestMultiHeadAttention(unittest.TestCase):

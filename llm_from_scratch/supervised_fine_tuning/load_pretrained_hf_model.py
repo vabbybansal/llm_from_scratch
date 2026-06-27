@@ -20,6 +20,9 @@ def get_model(model_name="meta-llama/Llama-3.2-1B"):
     return tokenizer, model
 
 def generate(s: str, tokenizer, model):
+    # TODO (deprecate later): uses HF's built-in model.generate for now. Once the shared
+    # libs/utils.generate is extended to be model-agnostic (KV cache, HF .logits), migrate to it
+    # for full control + a single inference path across stages.
     # chat-format the prompt so a post-SFT model triggers its learned instruction-following behavior.
     # add_generation_prompt=True appends the assistant header so the model knows to start responding.
     inputs = tokenizer.apply_chat_template(

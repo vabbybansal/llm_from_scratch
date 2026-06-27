@@ -1,7 +1,7 @@
 import torch
 
-from llm_from_scratch.libs.feedforward import FeedForward
-from llm_from_scratch.libs.multihead_attention import MultiHeadAttention
+from llm_from_scratch.pretraining.model.feedforward import FeedForward
+from llm_from_scratch.pretraining.model.multihead_attention import MultiHeadAttention
 
 
 class TransformerBlock(torch.nn.Module):

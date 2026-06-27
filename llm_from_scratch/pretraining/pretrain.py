@@ -1,7 +1,7 @@
-from llm_from_scratch.libs.gpt import GPT
-from llm_from_scratch.libs.data_loader import create_dataloaders
+from llm_from_scratch.pretraining.model.gpt import GPT
+from llm_from_scratch.pretraining.data.data_loader import create_dataloaders
 from llm_from_scratch.pretraining.trainer import PreTrainLanguageModelDriver
-from llm_from_scratch.libs.constants import GPT2_SMALL, GPT2_MEDIUM, GPT2_LARGE
+from llm_from_scratch.pretraining.model.constants import GPT2_SMALL, GPT2_MEDIUM, GPT2_LARGE
 from llm_from_scratch.pretraining.load_weights import load_gpt2_weights
 
 # model = GPT(

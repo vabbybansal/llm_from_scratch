@@ -18,17 +18,17 @@ The point is to *understand every moving part*, not to build a production model.
 
 ## 2. Component map
 
-### Pretraining (custom GPT, `libs/` + `pretraining/`)
+### Pretraining (custom GPT, `pretraining/`)
 
 | Component | File | Role |
 |---|---|---|
-| `Tokenizer` | `libs/tokenizer.py` | tiktoken `gpt2` BPE wrapper |
-| `LLMDataset` | `libs/llm_dataset.py` | sliding-window next-token pairs over EOS-joined docs |
-| `create_dataloaders` | `libs/data_loader.py` | wraps dataset → train/val/test DataLoaders |
-| `MultiHeadAttention` | `libs/multihead_attention.py` | causal MHA via upper-triangular mask buffer |
-| `FeedForward` | `libs/feedforward.py` | 2-layer MLP, 4× expansion, GELU |
-| `TransformerBlock` | `libs/transformer_block.py` | **pre-norm** + residuals |
-| `GPT` | `libs/gpt.py` | token+pos embeddings → blocks → final LN → LM head (optional weight tying) |
+| `Tokenizer` | `pretraining/data/tokenizer.py` | tiktoken `gpt2` BPE wrapper |
+| `LLMDataset` | `pretraining/data/llm_dataset.py` | sliding-window next-token pairs over EOS-joined docs |
+| `create_dataloaders` | `pretraining/data/data_loader.py` | wraps dataset → train/val/test DataLoaders |
+| `MultiHeadAttention` | `pretraining/model/multihead_attention.py` | causal MHA via upper-triangular mask buffer |
+| `FeedForward` | `pretraining/model/feedforward.py` | 2-layer MLP, 4× expansion, GELU |
+| `TransformerBlock` | `pretraining/model/transformer_block.py` | **pre-norm** + residuals |
+| `GPT` | `pretraining/model/gpt.py` | token+pos embeddings → blocks → final LN → LM head (optional weight tying) |
 | `PreTrainLanguageModelDriver` | `pretraining/trainer.py` | train/eval loop, loss, peek-generation, checkpoint |
 | `TrainingLogger` | `pretraining/logger.py` | CSV + wandb sinks, perplexity |
 | `load_gpt2_weights` | `pretraining/load_weights.py` | load OpenAI GPT-2 weights into the custom `GPT` |
