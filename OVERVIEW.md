@@ -15,7 +15,27 @@ The point is to *understand every moving part*, not to build a production model.
 
 ---
 
-## 2. Results — evidence it worked
+## 2. Goals — the full roadmap
+
+The ambition is to build **the entire modern LLM stack from primitives**, end to end. Each stage is a deliberate step along one throughline: **off-policy → on-policy**. Pretraining and SFT learn by *imitating* a fixed target (next token, expert response); every stage after them learns from completions scored *against the model itself*, which is what fixes SFT's exposure bias and hallucination (see §5 "Post-training / SFT"). We do all of it.
+
+| # | Stage | Status | What it is / why it's here |
+|---|---|---|---|
+| 1 | **Pretraining** | ✅ done | Next-token prediction on raw text — the base language capability. Off-policy imitation of a static corpus. |
+| 2 | **SFT** | ✅ done | Supervised fine-tuning on instruction/response pairs — installs the chat format + "answer the instruction" behavior. Still **off-policy** (targets written by humans / a frontier model), which is exactly why we don't stop here. |
+| 3 | **DPO** | ⬜ planned | Direct Preference Optimization — learn from `(chosen, rejected)` pairs with a simple contrastive loss, **no reward model**, KL-anchored to a frozen reference. Offline/mixed-policy: the cheapest, most stable preference step (Tulu-3's first preference stage). |
+| 4a | **RLHF — RM + PPO (off-policy RM)** | ⬜ planned | The classic InstructGPT recipe, and the one that teaches the *most machinery*: train a **reward model** on off-the-shelf preference comparisons (`ultrafeedback_binarized`), then optimize the policy **on-policy** with PPO (actor-critic) under a KL penalty to a reference. The full alignment loop — and a chance to *observe* reward hacking when the policy drifts off the RM's (off-policy) training distribution. |
+| 4b | **RLHF — RM + PPO (on-policy / LLM-judged RM)** | ⬜ planned | One round of **iterative RLHF**: sample completions from *our own* SFT model, have a **local Instruct model (Ollama) judge** which is better → on-policy preference pairs → retrain the RM on-distribution → PPO again. Tests whether on-policy RM data curbs the reward hacking seen in 4a. |
+| 5 | **RLHF — RM + GRPO** | ⬜ planned | Same reward-model setup, but swap PPO for **GRPO** — drop the value/critic network and estimate advantage from a *group* of sampled completions. Lighter than PPO; the DeepSeek-R1 lineage. |
+| 6 | **RLVR** | ⬜ planned | RL with **Verifiable Rewards** — no learned RM; the reward is a programmatic check (math answer matches ground truth, instruction-following constraint satisfied). Fully on-policy; Tulu-3's final stage and the engine behind reasoning models. |
+| 7 | **LoRA** | ⬜ planned | Cross-cutting efficiency unlock: freeze the base weights, train tiny low-rank adapters — *no* gradients/optimizer state for the 1.24B params. The thing that makes everything above (esp. RLHF's policy + frozen reference) actually fit a 48 GB Mac. |
+| 8 | **Inference Engineering** | ⬜ planned | Serving the trained model well: KV cache, batched/continuous decoding, quantization (INT8/INT4), and the latency/throughput trade-offs. Training builds the weights; this makes them *usable*. |
+
+The progression is also the conceptual one: **imitation (1–2) → preference (3–5) → verifiable reward (6)**, with **LoRA (7)** as the efficiency substrate and **inference (8)** as the deployment layer.
+
+---
+
+## 3. Results — evidence it worked
 
 ### SFT: base model → instruction-follower (~1 hr, 20K-example Tulu-3 subset)
 
@@ -45,7 +65,7 @@ The from-scratch GPT has no instruction behavior to eyeball, so the metric is **
 
 ---
 
-## 3. Component map
+## 4. Component map
 
 ### Pretraining (custom GPT, `pretraining/`)
 
@@ -85,7 +105,7 @@ After the reorg, `libs/` holds only genuinely cross-stage utilities (the from-sc
 
 ---
 
-## 4. Sticking points & things to keep in mind
+## 5. Sticking points & things to keep in mind
 
 > Concise pointers, expanded where the *why* isn't obvious.
 
@@ -171,7 +191,7 @@ The post-training base was swapped from the scratch GPT-2 to a pretrained **Llam
 
 ---
 
-## 5. Where to look next
+## 6. Where to look next
 
 - **Architecture & commands:** [`CLAUDE.md`](CLAUDE.md).
 - **Code:** the component tables in §3 map each concept to its file.
