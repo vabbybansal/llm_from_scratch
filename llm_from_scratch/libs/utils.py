@@ -89,7 +89,7 @@ def create_rm_classifier_from_lm_hf(base_model_name_hf, sft_checkpoint_path, sft
     return model
 
     
-def create_rm_classifier_from_lm_scratch(base_model_name_hf, sft_checkpoint_path, sft_model_dtype, tokenizer):
+def create_rm_classifier_from_lm_scratch(base_model_name_hf, sft_checkpoint_path, sft_model_dtype):
     
     # AutoModelForCausalLM has two composable parts: one is the core backbone(.model) and the other is the disposable vocab projection (.lm_head)
     # We want to scrap the vocab projection, and attach a linear on top of the backbone which has most of the LM knowledge

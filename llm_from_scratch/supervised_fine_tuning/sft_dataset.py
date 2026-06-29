@@ -82,6 +82,17 @@ def sft_collate(batch, pad_token_id, ignore_token=-100, use_dynamic_padding=True
     return torch.stack(padded_inputs), torch.stack(padded_targets)
 
 
+# --- filter_small: why we subset ---
+# A full Tulu-3 SFT epoch is intractable on a Mac/MPS: ~939K examples / batch 4 ≈ 235K steps -> days.
+# filter_small builds a small subset of SHORT, COMPLETE conversations so a run finishes in ~1 hour:
+#   1. scan only a bounded window (train[:filter_scan]) — filtering tokenizes every candidate, so we
+#      cap how many rows we even look at instead of tokenizing all 939K.
+#   2. keep only examples that fit fully in max_length (len(ids) <= max_length): no truncation means
+#      every kept example is a complete prompt+response, and shorter sequences = fewer tokens/step =
+#      faster + lower memory.
+#   3. max_examples then caps the kept count, which bounds the number of training steps.
+# Trade-off: biases the data toward short/simple tasks. The structural fix is LoRA (kills the
+# optimizer-memory cost), not shrinking the dataset — see OVERVIEW "Memory & performance".
 def create_sft_dataloaders(tokenizer, max_length=1024, batch_size=4,
                            dataset_name="allenai/tulu-3-sft-mixture", val_fraction=0.01,
                            num_workers=0, filter_small=False, max_examples=None, filter_scan=50000,
