@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModelForCausalLM
 
 
 # TODO (cross-stage / future): this lives in shared libs/ but is currently GPT-specific —
@@ -66,3 +68,58 @@ def get_device() -> torch.device:
     else:
         device = torch.device("cpu")
     return device
+
+def create_rm_classifier_from_lm_hf(base_model_name_hf, sft_checkpoint_path, sft_model_dtype, tokenizer) -> AutoModelForSequenceClassification:
+
+    # Use HF to automatically put a classification head
+    model = AutoModelForSequenceClassification.from_pretrained(
+        base_model_name_hf,
+        num_labels=1,
+        torch_dtype=sft_model_dtype
+    )
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model.config.pad_token_id = tokenizer.pad_token_id
+
+    # warm the weights from the sft trained model
+    sd = torch.load(sft_checkpoint_path)["model_state_dict"]
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    print(f"SFT Model Loaded into RM classification head. New additions - {missing}, dropped - {unexpected}")
+    return model
+
+    
+def create_rm_classifier_from_lm_scratch(base_model_name_hf, sft_checkpoint_path, sft_model_dtype, tokenizer):
+    
+    # AutoModelForCausalLM has two composable parts: one is the core backbone(.model) and the other is the disposable vocab projection (.lm_head)
+    # We want to scrap the vocab projection, and attach a linear on top of the backbone which has most of the LM knowledge
+    causal_lm = AutoModelForCausalLM.from_pretrained(
+        base_model_name_hf,
+        torch_dtype=sft_model_dtype
+    )
+
+    sd = torch.load(sft_checkpoint_path)["model_state_dict"]
+    missing, unexpected = causal_lm.load_state_dict(sd, strict=False)
+
+    class RewardModelFromHF(nn.Module):
+        def __init__(self, causal_lm):
+            super().__init__()
+            self.backbone = causal_lm.base_model
+            d = causal_lm.config.hidden_size
+            self.score = nn.Linear(d, 1, bias=False)
+            # match the backbone's dtype
+            self.score = self.score.to(next(self.backbone.parameters()).dtype)
+    
+        def forward(self, input_ids, attention_mask):
+            wrap_x = self.backbone(input_ids=input_ids, attention_mask=attention_mask)  
+            x = wrap_x.last_hidden_state  # (b, context_size, d)
+            x = self.score(x).squeeze(-1)   # (b, context_size, 1) => (b, context_size)
+
+            last_idx = attention_mask.sum(1) - 1  # last real token. Note that this is only valid if we are doing only right padding. Any left padding breaks it
+            b = x.size(0)
+            
+            # pick the last tensor
+            return x[torch.arange(b, device=x.device), last_idx]
+
+    return RewardModelFromHF(causal_lm)
+    
