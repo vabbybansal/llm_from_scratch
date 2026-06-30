@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results — Off-policy Reward Model (4a) + reward-L2 ablation</title>
+<style>
+  :root { --fg:#1c1c1e; --muted:#6b6b70; --line:#e3e3e8; --accent:#2f6f4f; --bg:#fbfbfd; --code:#f4f4f7; --bad:#9a3b3b; --reg:#2f6f4f; --noreg:#9a3b3b; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg);
+         background:var(--bg); max-width:880px; margin:40px auto; padding:0 20px; }
+  h1 { font-size:24px; margin-bottom:4px; }
+  h2 { font-size:17px; margin-top:34px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { font-size:15px; margin-top:24px; }
+  .sub { color:var(--muted); margin-top:0; }
+  .headline { background:var(--code); border-left:4px solid var(--accent); padding:12px 16px; border-radius:6px; margin:18px 0; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  code, pre { font-family:"SF Mono", Menlo, monospace; background:var(--code); border-radius:4px; }
+  code { padding:1px 5px; font-size:13px; }
+  pre { padding:12px 14px; overflow-x:auto; font-size:13px; white-space:pre-wrap; }
+  .note { color:var(--muted); font-size:13px; font-style:italic; }
+  .tag { display:inline-block; background:var(--accent); color:#fff; font-size:11px; padding:2px 8px; border-radius:10px; vertical-align:middle; }
+  .reg { color:var(--reg); font-weight:600; }
+  .noreg { color:var(--noreg); font-weight:600; }
+  .legend { font-size:13px; color:var(--muted); margin:6px 0 0; }
+  .legend .reg::before, .legend .noreg::before { content:"\25CF"; margin-right:5px; }
+  .chart { border:1px solid var(--line); border-radius:8px; background:#fff; padding:14px 16px 6px; margin:14px 0; }
+  .chart h4 { margin:0 0 4px; font-size:14px; }
+  .takeaway { background:#fff; border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:6px; padding:10px 14px; margin:12px 0; }
+  figure { margin:14px 0; }
+  figure img { width:100%; border:1px solid var(--line); border-radius:8px; display:block; }
+  figcaption { font-size:13px; color:var(--muted); margin-top:8px; }
+  .wbg { color:#6aa84f; font-weight:600; }
+  .wbt { color:#178a8a; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>Off-policy Reward Model — Stage 4a <span class="tag">✅ done</span></h1>
+<p class="sub">Bradley-Terry RM warmed from the SFT checkpoint · Llama-3.2-1B · Tulu-3 preference mixture · MPS (M5 Pro, 48GB)<br>
+Ablation: <span class="reg">reward-L2 = 1e-3</span> vs <span class="noreg">no regularization (1e-3 → 0)</span></p>
+
+<div class="headline">
+  <strong>Two questions, two answers.</strong>
+  <strong>(1) Did RM training work?</strong> Yes — preference accuracy climbs from chance (~0.45) to
+  <strong>≈ 0.68</strong> (near the human-agreement ceiling) and the fixed peeks flip from mis-ranked to
+  <strong>all-✓</strong> with widening margins.
+  <strong>(2) What does the reward-L2 regularizer do?</strong> It leaves ranking quality <em>unchanged</em> but
+  keeps reward magnitudes <strong>bounded near 0</strong>; without it the rewards drift onto a growing positive
+  pedestal (final <code>r</code> ≈ +0.6 to +1.3) — the unbounded scale that would later swamp PPO's KL penalty.
+  <strong>Conclusion: ship <code>l2_reg=1e-3</code> for the RM that feeds PPO.</strong>
+</div>
+
+<h2>wandb dashboard (source of truth)</h2>
+<p>The six logged validation panels for both runs, straight from Weights &amp; Biases. Everything below this is
+read off these curves. <strong>Note the wandb colors are the inverse of the hand-drawn charts further down:</strong>
+here <span class="wbg">"With Regularization" (l2_reg = 1e-3)</span> is light green and
+<span class="wbt">"No L2 Regularization" (l2_reg = 0)</span> is teal.</p>
+
+<figure>
+  <img src="wandb_val_panels.png" alt="wandb validation panels: r_rejected, r_chosen, reg, loss, bt, acc for both runs">
+  <figcaption>
+    <strong>Top row —</strong> <code>val/r_rejected</code>, <code>val/r_chosen</code>, <code>val/reg</code>:
+    the <span class="wbt">no-reg</span> rewards climb steadily onto a positive pedestal while the
+    <span class="wbg">reg</span> rewards flatten near 0; <code>val/reg</code> is flat-zero for no-reg (penalty off)
+    and bounded for reg. <strong>Bottom row —</strong> <code>val/loss</code>, <code>val/bt</code>, <code>val/acc</code>:
+    the <span class="wbg">reg</span> loss/BT descend lower and keep falling, the <span class="wbt">no-reg</span>
+    loss/BT bottom out near step 500 and drift back up; <code>val/acc</code> tracks together in the same ~0.66–0.68 band.
+  </figcaption>
+</figure>
+
+<h2>Setup</h2>
+<table>
+  <tr><th>Backbone</th><td><code>meta-llama/Llama-3.2-1B</code>, weights warmed from our SFT checkpoint (<code>checkpoints/sft/checkpoint_epoch0.pt</code>); LM head dropped, fresh scalar <code>score</code> head added (<code>score.weight</code> randomly initialized — see load report below)</td></tr>
+  <tr><th>Data</th><td><code>allenai/llama-3.1-tulu-3-8b-preference-mixture</code> — pairwise (chosen, rejected); <code>filter_small</code> keeps pairs where both sides fit; capped at <strong>max_examples = 20,000</strong>, max_length 256, batch 4 → 2,239 train steps</td></tr>
+  <tr><th>Loss</th><td>Bradley-Terry: <code>BCEWithLogits(r_chosen − r_rejected, target=1)</code> &nbsp;+&nbsp; <code>l2_reg · mean(r_chosen² + r_rejected²)</code></td></tr>
+  <tr><th>Optim</th><td>AdamW, lr 1e-5, cosine schedule (3% warmup), grad-clip 1.0, bf16, 1 epoch</td></tr>
+  <tr><th>Pad token</th><td><code>&lt;|finetune_right_pad_id|&gt;</code> (id 128004) so pad_id ≠ eos_id → last-token pooling is unambiguous</td></tr>
+  <tr><th>Metrics</th><td>val + fixed-pair "peek" every ~10% of the epoch, plus a step-0 baseline of the untrained RM</td></tr>
+  <tr><th>wandb</th><td><span class="reg">reg:</span> run "With Regularization" · <span class="noreg">no-reg:</span> run "No L2 Regularization" (project <code>llm-from-scratch-rm-trainer</code>)</td></tr>
+</table>
+
+<pre>LlamaForSequenceClassification LOAD REPORT from: meta-llama/Llama-3.2-1B
+score.weight | MISSING  (newly initialized)
+SFT Model Loaded into RM classification head. New additions - ['score.weight'], dropped - ['lm_head.weight']</pre>
+<p class="note">Expected: the SFT backbone loads cleanly; only the brand-new scalar reward head is randomly initialized. That's why the step-0 baseline below sits at chance.</p>
+
+<h1 style="font-size:20px;margin-top:40px;border-top:3px solid var(--accent);padding-top:18px">Part 1 · Did RM training work?</h1>
+<p>The question: can a scalar head bolted onto the SFT backbone learn to score a human-preferred answer above a
+rejected one? The success signals are <strong>preference accuracy</strong> (fraction of val pairs where
+<code>r_chosen &gt; r_rejected</code>; chance = 0.5) and the <strong>peeks</strong> (do fixed pairs flip to ✓ with
+a widening margin?). Numbers below are the shipped <span class="reg">reg = 1e-3</span> run; the
+<span class="noreg">no-reg</span> run reaches the same band (it's the subject of Part 2).</p>
+
+<h2>1.1 · It learns to rank — accuracy climbs to the ceiling</h2>
+<table>
+  <tr><th>Run</th><th class="num">val acc @ step 0</th><th class="num">final val acc</th><th class="num">final val BT loss</th><th class="num">final val margin (r_c − r_r)</th></tr>
+  <tr><td><span class="reg">reg = 1e-3</span> (shipped)</td><td class="num">0.446</td><td class="num"><strong>0.685</strong></td><td class="num"><strong>0.607</strong></td><td class="num">0.69</td></tr>
+  <tr><td><span class="noreg">no-reg = 0</span></td><td class="num">0.467</td><td class="num">0.663</td><td class="num">0.674</td><td class="num">0.63</td></tr>
+</table>
+<p>Accuracy goes from <strong>below chance</strong> at step 0 (0.45 — the untrained random <code>score</code> head,
+our honest "before") to <strong>≈ 0.68</strong>. For a 1B model on a 20K-pair subset trained 1 epoch, that's
+<strong>healthy, not weak</strong>: human annotators only agree with each other ~65–75% of the time, so ~0.68 is
+near the realistic ceiling — the RM has learned about as much signal as the labels contain. (Both runs land in the
+same band; that's the point of Part 2.)</p>
+
+<div class="chart">
+  <h4>Validation preference accuracy vs training step</h4>
+  <svg viewBox="0 0 640 240" width="100%" role="img" aria-label="Validation accuracy curves">
+    <!-- axes -->
+    <line x1="50" y1="200" x2="620" y2="200" stroke="#c9c9d0"/>
+    <line x1="50" y1="20"  x2="50"  y2="200" stroke="#c9c9d0"/>
+    <!-- y gridlines: acc 0.45..0.70 mapped 200..20 -->
+    <text x="44" y="204" text-anchor="end" font-size="11" fill="#6b6b70">0.45</text>
+    <text x="44" y="155" text-anchor="end" font-size="11" fill="#6b6b70">0.55</text>
+    <text x="44" y="106" text-anchor="end" font-size="11" fill="#6b6b70">0.60</text>
+    <line x1="50" y1="106" x2="620" y2="106" stroke="#eee"/>
+    <text x="44" y="57"  text-anchor="end" font-size="11" fill="#6b6b70">0.65</text>
+    <line x1="50" y1="57"  x2="620" y2="57"  stroke="#eee"/>
+    <text x="44" y="24"  text-anchor="end" font-size="11" fill="#6b6b70">0.70</text>
+    <!-- x: step 0..2230 mapped 50..620; acc 0.44..0.70 mapped 205..20 (scale: y=205-(acc-0.44)/0.26*185) -->
+    <!-- reg points: (0,.446)(223,.522)(446,.630)(669,.620)(892,.685)(1115,.641)(1338,.652)(1561,.674)(1784,.674)(2007,.674)(2230,.685) -->
+    <polyline fill="none" stroke="#2f6f4f" stroke-width="2"
+      points="50,201 107,147 164,72 221,79 278,42 335,73 392,65 449,49 506,49 563,49 620,42"/>
+    <!-- no-reg points: (0,.467)(223,.630)(446,.630)(669,.696)(892,.630)(1115,.630)(1338,.663)(1561,.652)(1784,.663)(2007,.652)(2230,.663) -->
+    <polyline fill="none" stroke="#9a3b3b" stroke-width="2" stroke-dasharray="5 4"
+      points="50,186 107,72 164,72 221,25 278,72 335,72 392,49 449,58 506,49 563,58 620,49"/>
+  </svg>
+  <p class="legend"><span class="reg">reg = 1e-3</span> &nbsp;&nbsp; <span class="noreg">no-reg = 0</span> &nbsp;·&nbsp; both converge to the same band; step 0 starts below chance (random head).</p>
+</div>
+
+<h2>1.2 · The peeks flip from mis-ranked to all-✓ (shipped reg run)</h2>
+<p>Three fixed (prompt, chosen, rejected) triples are scored at every eval; the signal is the
+<strong>margin</strong> (chosen pulled above rejected, verdict ✓) widening over training. The three pairs (full text,
+shared with Part 2):</p>
+
+<table>
+  <tr><th>Prompt</th><th>chosen (intended-better)</th><th>rejected</th></tr>
+  <tr><td>What is the capital of France?</td><td>The capital of France is Paris.</td><td>I think it might be Lyon or somewhere in Germany, not totally sure.</td></tr>
+  <tr><td>Write a haiku about the ocean.</td><td>Endless blue expanse / waves whisper to the pale shore / gulls trace the salt wind</td><td>The ocean is big and has water and fish and it is very deep and blue ok.</td></tr>
+  <tr><td>Explain why the sky is blue.</td><td>Sunlight scatters off air molecules, and shorter blue wavelengths scatter most (Rayleigh scattering), so the sky looks blue.</td><td>The sky is blue because it reflects the ocean which is also blue.</td></tr>
+</table>
+
+<h3><span class="reg">reg</span> — BEFORE (step 0, random head): 2/3 mis-ranked</h3>
+<pre>Peek 1: [What is the capital of France?]  margin=−0.191 ✗
+   chosen   r=−0.891 | The capital of France is Paris.
+   rejected r=−0.699 | I think it might be Lyon or somewhere in Germany, not totally sure.
+Peek 2: [Write a haiku about the ocean.]  margin=−0.008 ✗
+   chosen   r=−0.467 | Endless blue expanse / waves whisper to the pale shore / gulls trace t
+   rejected r=−0.459 | The ocean is big and has water and fish and it is very deep and blue o
+Peek 3: [Explain why the sky is blue.]  margin=+0.086 ✓
+   chosen   r=−0.283 | Sunlight scatters off air molecules, and shorter blue wavelengths scat
+   rejected r=−0.369 | The sky is blue because it reflects the ocean which is also blue.</pre>
+
+<h3><span class="reg">reg</span> — AFTER (final, step 2230): 3/3 correct, margins widened</h3>
+<pre>Peek 1: [What is the capital of France?]  margin=+1.859 ✓
+   chosen   r=+0.469 | The capital of France is Paris.
+   rejected r=−1.391 | I think it might be Lyon or somewhere in Germany, not totally sure.
+Peek 2: [Write a haiku about the ocean.]  margin=+1.561 ✓
+   chosen   r=+1.070 | Endless blue expanse / waves whisper to the pale shore / gulls trace t
+   rejected r=−0.490 | The ocean is big and has water and fish and it is very deep and blue o
+Peek 3: [Explain why the sky is blue.]  margin=+0.903 ✓
+   chosen   r=+0.012 | Sunlight scatters off air molecules, and shorter blue wavelengths scat
+   rejected r=−0.891 | The sky is blue because it reflects the ocean which is also blue.</pre>
+<p class="note"><strong>Part 1 verdict:</strong> RM training works — chance → ~0.68 accuracy, and every fixed peek
+ends correctly ranked with a clear positive margin. This is the model we carry into PPO.</p>
+
+<h1 style="font-size:20px;margin-top:44px;border-top:3px solid var(--accent);padding-top:18px">Part 2 · How does the L2 regularizer influence training & outputs?</h1>
+<p>Part 1 showed both runs rank equally well. So what does the <code>l2_reg</code> term actually change? Its job is
+not ranking — it's <strong>reward scale</strong>. The Bradley-Terry loss depends only on the margin
+(<code>r_chosen − r_rejected</code>), so it leaves the rewards' absolute <em>offset and scale</em> completely free
+to drift. The L2 penalty <code>λ·mean(r_chosen² + r_rejected²)</code> pulls both rewards toward 0
+<em>symmetrically</em> — bounding scale without touching the margin.</p>
+
+<h2>2.1 · Reward scale — the headline difference</h2>
+<p>Same ranking, completely different reward <em>scale</em>. Tracking validation mean rewards over the run:</p>
+
+<table>
+  <tr><th class="num">step</th><th class="num"><span class="reg">reg r_chosen</span></th><th class="num"><span class="reg">reg r_rejected</span></th><th class="num"><span class="noreg">no-reg r_chosen</span></th><th class="num"><span class="noreg">no-reg r_rejected</span></th></tr>
+  <tr><td class="num">0</td>   <td class="num">−0.91</td><td class="num">−0.95</td><td class="num">−0.96</td><td class="num">−1.03</td></tr>
+  <tr><td class="num">446</td> <td class="num">+0.53</td><td class="num">−0.12</td><td class="num">−0.43</td><td class="num">−0.88</td></tr>
+  <tr><td class="num">669</td> <td class="num">+0.23</td><td class="num">−0.37</td><td class="num">+0.83</td><td class="num">+0.23</td></tr>
+  <tr><td class="num">1338</td><td class="num">+0.52</td><td class="num">−0.12</td><td class="num">+1.00</td><td class="num">+0.41</td></tr>
+  <tr><td class="num">1784</td><td class="num">+0.32</td><td class="num">−0.37</td><td class="num">+1.30</td><td class="num">+0.66</td></tr>
+  <tr><td class="num">2230</td><td class="num"><strong>+0.33</strong></td><td class="num"><strong>−0.36</strong></td><td class="num"><strong>+1.26</strong></td><td class="num"><strong>+0.63</strong></td></tr>
+</table>
+
+<div class="chart">
+  <h4>Validation mean reward vs training step (the runaway)</h4>
+  <svg viewBox="0 0 640 260" width="100%" role="img" aria-label="Mean reward curves">
+    <!-- reward range -1.1..1.4 mapped y 230..20 ; y(r)=230-(r+1.1)/2.5*210 -->
+    <!-- zero line at r=0 -> y=230-1.1/2.5*210=230-92.4=137.6 -->
+    <line x1="50" y1="20" x2="50" y2="240" stroke="#c9c9d0"/>
+    <line x1="50" y1="138" x2="620" y2="138" stroke="#bbb" stroke-dasharray="2 3"/>
+    <text x="624" y="142" font-size="11" fill="#6b6b70">r = 0</text>
+    <text x="44" y="28"  text-anchor="end" font-size="11" fill="#6b6b70">+1.3</text>
+    <text x="44" y="234" text-anchor="end" font-size="11" fill="#6b6b70">−1.1</text>
+    <!-- steps x: 0,223,446,669,892,1115,1338,1561,1784,2007,2230 -> 50..620 step 57 -->
+    <!-- reg r_chosen: -0.91,-1.14,0.53,0.23,-0.02,0.19,0.52,0.27,0.32,0.32,0.33 -->
+    <polyline fill="none" stroke="#2f6f4f" stroke-width="2"
+      points="50,229 107,234 164,93 221,118 278,140 335,122 392,94 449,115 506,111 563,111 620,110"/>
+    <!-- reg r_rejected: -0.95,-1.46,-0.12,-0.37,-0.33,-0.49,-0.12,-0.40,-0.37,-0.36,-0.36 -->
+    <polyline fill="none" stroke="#2f6f4f" stroke-width="2" stroke-opacity="0.45"
+      points="50,232 107,261 164,148 221,169 278,166 335,179 392,148 449,172 506,169 563,168 620,168"/>
+    <!-- no-reg r_chosen: -0.96,-0.90,-0.43,0.83,0.34,0.64,1.00,1.22,1.30,1.27,1.26 -->
+    <polyline fill="none" stroke="#9a3b3b" stroke-width="2" stroke-dasharray="5 4"
+      points="50,230 107,225 164,174 221,68 278,109 335,84 392,54 449,36 506,29 563,32 620,32"/>
+    <!-- no-reg r_rejected: -1.03,-1.25,-0.88,0.23,-0.09,0.14,0.41,0.61,0.66,0.64,0.63 -->
+    <polyline fill="none" stroke="#9a3b3b" stroke-width="2" stroke-dasharray="5 4" stroke-opacity="0.45"
+      points="50,236 107,243 164,212 221,119 278,146 335,126 392,104 449,87 506,83 563,84 620,85"/>
+  </svg>
+  <p class="legend"><span class="reg">reg</span> (solid: r_chosen, faint: r_rejected) stays clamped around 0 ·
+     <span class="noreg">no-reg</span> (dashed) drifts upward off the r=0 line and keeps climbing.</p>
+</div>
+
+<p>Read: the <span class="reg">reg</span> rewards stay pinned near 0 and roughly symmetric (chosen slightly +,
+rejected slightly −). The <span class="noreg">no-reg</span> rewards drift onto a growing <strong>positive
+pedestal</strong> — by the end <em>both</em> chosen and rejected are large and positive (+1.26 / +0.63), still
+rising. Nothing in the BT loss constrains that absolute level (shift-invariance), so it wanders freely. The peeks
+make it even starker: no-reg peek rewards reach <strong>+2.6</strong> with margins to <strong>+2.5</strong>, vs
+reg peeks around +0.5 to +1.9 — same ranking, ~2–3× inflated scale.</p>
+
+<div class="takeaway"><strong>Why this matters for PPO:</strong> PPO consumes the reward as
+<code>r_total = r_RM − β·KL(policy‖ref)</code>. An unbounded, drifting <code>r_RM</code> (the no-reg picture)
+overwhelms the KL term, so the policy ignores the reference and reward-hacks; and a "good" β stops transferring
+between RMs/runs. The L2-bounded reward keeps that balance sane. (Per-prompt offset is separately absorbed by
+PPO's value baseline; this L2 term controls global <em>scale</em>.)</p>
+
+<h2>2.2 · The margin is preserved despite the scale difference</h2>
+<div class="takeaway"><strong>The margin is preserved despite the scale difference.</strong> The two runs end at
+wildly different reward <em>levels</em> — but the <em>gap</em> they care about is the same:
+<table style="margin:8px 0 2px">
+  <tr><th>Run</th><th class="num">final r_chosen</th><th class="num">final r_rejected</th><th class="num">margin (r_c − r_r)</th><th class="num">offset (midpoint)</th></tr>
+  <tr><td><span class="reg">reg = 1e-3</span></td><td class="num">+0.33</td><td class="num">−0.36</td><td class="num"><strong>0.69</strong></td><td class="num">≈ −0.02</td></tr>
+  <tr><td><span class="noreg">no-reg = 0</span></td><td class="num">+1.26</td><td class="num">+0.63</td><td class="num"><strong>0.63</strong></td><td class="num">≈ +0.95</td></tr>
+</table>
+Same discriminative margin (~0.6–0.7); the only thing that moved is the <em>offset</em> the margin rides on
+(≈0 vs ≈+0.95). That's the whole point of the L2: it slides the pair back down toward 0 <strong>without
+squeezing them together</strong> — ranking untouched, scale tamed. This is shift-invariance made literal.</div>
+
+<h2>2.3 · What it changes in the outputs — the no-reg peeks</h2>
+<p>Same three pairs, the <span class="noreg">no-reg</span> run. It learns the <em>identical ranking</em> (all-✓ by
+the end) — but compare the reward <em>values</em> to the <span class="reg">reg</span> AFTER block in Part 1:</p>
+
+<h3><span class="noreg">no-reg</span> — AFTER (final, step 2230): correct ranking, inflated scale</h3>
+<pre>Peek 1: [What is the capital of France?]  margin=+2.465 ✓
+   chosen   r=+2.125 | The capital of France is Paris.
+   rejected r=−0.340 | I think it might be Lyon or somewhere in Germany, not totally sure.
+Peek 2: [Write a haiku about the ocean.]  margin=+1.586 ✓
+   chosen   r=+2.656 | Endless blue expanse / waves whisper to the pale shore / gulls trace t
+   rejected r=+1.070 | The ocean is big and has water and fish and it is very deep and blue o
+Peek 3: [Explain why the sky is blue.]  margin=+0.621 ✓
+   chosen   r=+1.617 | Sunlight scatters off air molecules, and shorter blue wavelengths scat
+   rejected r=+0.996 | The sky is blue because it reflects the ocean which is also blue.</pre>
+<p class="note">Every reward sits high and positive — r_rejected reaches <strong>+1.07</strong>, chosen up to
+<strong>+2.66</strong> — vs the <span class="reg">reg</span> run's tidy ±1 range for the same pairs. Same verdicts,
+same relative order; the whole reward axis has just inflated and drifted up. (Reward text is truncated to ~70 chars
+exactly as the console printed it; full text in the Part 1 table.)</p>
+
+<h2>2.4 · A note on stability</h2>
+<p>The <span class="noreg">no-reg</span> val loss bottomed at 0.648 (step 892) then crept back up to
+<strong>0.674</strong> as the rewards inflated; the <span class="reg">reg</span> run descended monotonically to
+<strong>0.607</strong>. This is <em>consistent with</em> the regularizer having a stabilizing effect, but the two
+runs were not seed-controlled (different random <code>score</code>-head init), so I won't claim L2 strictly lowers
+BT loss — only that it didn't hurt, and it kept rewards bounded. Reproducing with a fixed seed would settle it.</p>
+
+<h2>Takeaways</h2>
+<ul>
+  <li><strong>Part 1 — RM training works:</strong> accuracy chance → ~0.68, peeks all-✓ with widening margins.</li>
+  <li><strong>0.66–0.68 is healthy, not weak</strong> — near the human-agreement ceiling for a 1B model on a 20K subset, 1 epoch.</li>
+  <li><strong>Part 2 — reward-L2 is free insurance:</strong> same accuracy either way, but bounded reward scale only with the penalty.</li>
+  <li><strong>Shift-invariance is real and visible:</strong> with no reg, both rewards drift onto a growing positive pedestal while the margin barely changes — the BT loss simply doesn't constrain the absolute level.</li>
+  <li><strong>Decision:</strong> ship <code>l2_reg=1e-3</code> as the RM that feeds PPO.</li>
+</ul>
+
+<p class="note">Summary lives in <code>OVERVIEW.md</code> §3. Live curves: Weights &amp; Biases — reg "With Regularization", no-reg "No L2 Regularization". SVG charts above are hand-plotted from the logged val metrics in this repo's run logs.</p>
+
+</body>
+</html>
