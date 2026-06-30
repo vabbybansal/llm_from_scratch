@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results — SFT (Llama-3.2-1B on Tulu-3)</title>
+<style>
+  :root { --fg:#1c1c1e; --muted:#6b6b70; --line:#e3e3e8; --accent:#2f6f4f; --bg:#fbfbfd; --code:#f4f4f7; --bad:#9a3b3b; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg);
+         background:var(--bg); max-width:860px; margin:40px auto; padding:0 20px; }
+  h1 { font-size:24px; margin-bottom:4px; }
+  h2 { font-size:17px; margin-top:34px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--muted); margin-top:0; }
+  .headline { background:var(--code); border-left:4px solid var(--accent); padding:12px 16px; border-radius:6px; margin:18px 0; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  code { font-family:"SF Mono", Menlo, monospace; background:var(--code); border-radius:4px; padding:1px 5px; font-size:13px; }
+  .peek { border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0; background:#fff; }
+  .peek .q { color:var(--accent); font-weight:600; }
+  .before { border-left:4px solid var(--bad); }
+  .after  { border-left:4px solid var(--accent); }
+  .note { color:var(--muted); font-size:13px; font-style:italic; }
+  .tag { display:inline-block; background:var(--accent); color:#fff; font-size:11px; padding:2px 8px; border-radius:10px; vertical-align:middle; }
+  .mono { font-family:"SF Mono", Menlo, monospace; font-size:13px; }
+  figure { margin:14px 0; }
+  figure img { width:100%; border:1px solid var(--line); border-radius:8px; display:block; }
+  figcaption { font-size:13px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+
+<h1>SFT — Supervised Fine-Tuning <span class="tag">✅ done</span></h1>
+<p class="sub">Pretrained Llama-3.2-1B (HF, bf16, MPS) → instruction-follower · Tulu-3 SFT mixture · ~1 hr on a Mac</p>
+
+<div class="headline">
+  <strong>Headline:</strong> ~1 hour on a 20K-example Tulu-3 subset turns the base Llama-3.2-1B
+  (which has never seen the chat format) into a coherent instruction-follower.
+  Final <strong>validation loss ≈ 1.23</strong> (perplexity ≈ 3.4).
+  The loss barely moves — the transformation is visible only in the <em>peeks</em>.
+</div>
+
+<h2>Setup</h2>
+<table>
+  <tr><th>Base model</th><td>pretrained <code>meta-llama/Llama-3.2-1B</code> (HF), bf16, on Apple MPS. Chat template borrowed from the <code>-Instruct</code> variant (base ships none)</td></tr>
+  <tr><th>Data</th><td>Tulu-3 SFT mixture — filtered to short (≤256-token) complete conversations, capped at ~20K examples for a tractable Mac run</td></tr>
+  <tr><th>Objective</th><td>cross-entropy on the <strong>response tokens only</strong> (prompt + padding masked to <code>-100</code>)</td></tr>
+  <tr><th>Run</th><td>1 epoch ≈ 2,475 steps · batch 8 · seq 256 · <strong>static</strong> padding (no MPS allocator fragmentation) · AdamW lr 2e-5, cosine + ~3% warmup · grad-clip 1.0</td></tr>
+  <tr><th>Eval</th><td>val loss / perplexity + <strong>peek-generation</strong> on fixed prompts (the qualitative signal)</td></tr>
+</table>
+
+<h2>Qualitative evidence — peek-generation (before → after)</h2>
+<p>The same fixed prompts, sampled across training. The base model can't parse the chat format at all; by the end of one epoch it answers on-task.</p>
+
+<div class="peek before">
+  <div class="q">Step 0 — base model, chat format unfamiliar (verbatim)</div>
+  <div class="mono">
+  [What is the capital of France?]<br>
+  &nbsp;&nbsp;-&gt; What is the capital of France?iteDatabaseBeginInitdropIfExistsiteDatabaseBeginInitdropIfExistsiteDatabaseBeginInititageBeginInititageBeginInititageBeginInititageBeginInit…<br><br>
+  [Write a haiku about the ocean.]<br>
+  &nbsp;&nbsp;-&gt; MakeRange: 3:0:1:3:1:1:1:1:1:1:1:1:1:1:1:1:1:1…<br><br>
+  [Explain the difference between machine learning and deep learning.]<br>
+  &nbsp;&nbsp;-&gt; Explain the difference p learning.enderitadecelegate ReferentialAction
+  </div>
+</div>
+
+<div class="peek after">
+  <div class="q">Step ~2400 — end of one epoch (verbatim)</div>
+  <div class="mono">
+  [What is the capital of France?]<br>
+  &nbsp;&nbsp;-&gt; Paris is the capital of France.<br><br>
+  [Write a haiku about the ocean.]<br>
+  &nbsp;&nbsp;-&gt; The sea is blue. / The waves are crashing. / The water is salty and clear. / The ocean is a place of wonder. It is a source of energy and beauty…<br><br>
+  [Explain the difference between machine learning and deep learning.]<br>
+  &nbsp;&nbsp;-&gt; Machine learning is a type of supervised learning in which the data is used to train a model. Deep…
+  </div>
+</div>
+
+<h2>The learning trajectory (Peek 1, verbatim across steps)</h2>
+<p>Instruction-following emerges <em>within the first ~200 steps</em>, then sharpens into clean answers with clean stops:</p>
+<table>
+  <tr><th>Step</th><th>"What is the capital of France?"</th><th>What it shows</th></tr>
+  <tr><td>0</td><td class="mono">iteDatabaseBeginInitdropIfExists…</td><td>base model, no chat format → gibberish</td></tr>
+  <tr><td>200</td><td class="mono">Paris / The capital of France is Paris.</td><td>instruction-following <strong>clicks</strong></td></tr>
+  <tr><td>1000</td><td>correct but rambles on (no stop)</td><td>knows the answer, over-generates</td></tr>
+  <tr><td>1200</td><td class="mono">Paris is the capital of France.</td><td>clean answer + clean stop</td></tr>
+  <tr><td>2400</td><td class="mono">Paris is the capital of France.</td><td>stable</td></tr>
+</table>
+<p class="note">Peek 2 went from an ML explanation (wrong topic!) at step 200 → real ocean haikus by step 1800–2400 — the model learned both the format and the task over the hour.</p>
+
+<h2>The key observation</h2>
+<p>Final numbers (verbatim): <strong>train (epoch avg) 1.49 / ppl 4.44</strong>, <strong>val 1.23 / ppl 3.43</strong>
+— full epoch of <strong>2,475 steps in 62 min</strong> on MPS (~1.50 s/it, no OOM, static padding held).
+Val sitting <em>below</em> the train average is healthy: train loss is averaged over the whole epoch (including the
+high-loss early steps) while val is measured at the end with the improved model — not overfitting.</p>
+<p>The <strong>loss barely moves</strong> over the run. That's expected: the base model is <em>already</em> a strong language model, so SFT isn't teaching it language — it's installing the <strong>chat format + "answer the instruction" behavior</strong>. That change is nearly invisible in the loss curve and obvious in the peeks. This is why peek-generation, not the loss, is the success signal for SFT.</p>
+<p class="note"><strong>Remaining rough edges (all expected after 1 epoch):</strong> inconsistent stopping — Peek 1
+sometimes runs to <code>max_new_tokens=50</code> and drifts into unrelated text (the model hasn't <em>reliably</em>
+learned to emit <code>&lt;|eot_id|&gt;</code> after short answers yet); occasional topic drift. Exactly the kind of
+behavior preference/RL alignment in the next stage is meant to clean up.</p>
+
+<h2>wandb curves</h2>
+<figure>
+  <img src="wandb_sft.png" alt="wandb SFT curves: train/ppl, train/loss, val/ppl, val/loss">
+  <figcaption><strong>train/ppl</strong> drops from ~37 to a noisy 2.5–10 band; <strong>train/loss</strong> from ~3.5 to a
+  noisy 0.5–2.5 band — the descent is real but shallow and dominated by batch variance, which is the whole point:
+  the base model is already fluent. <strong>val</strong> is logged once at epoch end (the single point): ppl ≈ 3.43, loss ≈ 1.23.
+  Run <code>giddy-shape-6</code>, project <code>llm-from-scratch-pretrainer</code>.</figcaption>
+</figure>
+
+<h2>Takeaways</h2>
+<ul>
+  <li><strong>SFT = behavioral cloning</strong> of a format/behavior the base model lacked; the loss-vs-peeks gap is the lesson.</li>
+  <li><strong>Off-policy by design</strong> — targets are human/frontier-model answers, not the base model's own samples. This is intended (and is exactly why preference/RL stages follow — see OVERVIEW §5).</li>
+  <li><strong>Data prep dominates</strong> — response-only masking, the single input→target shift, left-truncation, and right-padding are where the correctness lives; the training loop is almost secondary.</li>
+  <li>Checkpoint: <code>checkpoints/sft/checkpoint_epoch0.pt</code> — the starting policy for the RLHF phase.</li>
+</ul>
+
+<p class="note">Summary lives in <code>OVERVIEW.md</code> §3. Live curves: Weights &amp; Biases — run <code>giddy-shape-6</code> (project <code>llm-from-scratch-pretrainer</code>).</p>
+
+</body>
+</html>

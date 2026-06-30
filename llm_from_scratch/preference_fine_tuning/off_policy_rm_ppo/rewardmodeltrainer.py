@@ -1,6 +1,7 @@
 import os
 import torch
 import wandb
+from datetime import date
 from tqdm import tqdm
 from llm_from_scratch.libs.utils import create_rm_classifier_from_lm_hf
 from llm_from_scratch.libs.utils import get_device
@@ -15,6 +16,7 @@ class RewardModelTrainer():
             dataloaders, 
             optimizer, 
             lr, 
+            l2_reg,
             checkpoint_dir='checkpoints/rm/',
             wandb_project="llm-from-scratch-rm-trainer",
             device=None
@@ -35,40 +37,45 @@ class RewardModelTrainer():
         self.device = device if device else get_device()
         self.model.to(self.device)
 
+        self.l2_reg = l2_reg
+
         os.makedirs(checkpoint_dir, exist_ok=True)   # ensure checkpoint dir exists before saving
         wandb.init(project=wandb_project, config={"lr": lr, "model": base_model_name_hf})
 
-    def train(self, epochs, checkpoint_every_n_steps=20000,
-              peek=False, peek_every_n_steps=200, peek_pairs=None):
+    def train(self, epochs, checkpoint_every_n_steps=20000, peek=False, peek_pairs=None):
         # cosine LR schedule with ~3% warmup over the whole run (total steps = batches/epoch × epochs)
         num_steps = len(self.dataloaders['train']) * epochs
         self.scheduler = get_cosine_schedule_with_warmup(self.optimizer, int(0.03 * num_steps), num_steps)
+        # baseline at step 0: validate + peek the UNTRAINED RM (random score head) BEFORE any update,
+        # so we capture the "before" (acc ≈ 0.5, margins ≈ 0, rewards ≈ 0) for the before/after story
+        self.validation(epoch=0, step=0)
+        if peek and peek_pairs:
+            self.peek_score(0, 0, peek_pairs)
         for epoch in range(epochs):
-            self.train_epoch(epoch, checkpoint_every_n_steps, peek, peek_every_n_steps, peek_pairs)
+            self.train_epoch(epoch, checkpoint_every_n_steps, peek, peek_pairs)
             val_loss = self.validation(epoch)
             self.checkpoint(epoch, val_loss)        # per-epoch named checkpoint (kept), so a finished epoch is never lost
 
-    def calc_metrics(self, loss, acc):
-        return {
-            'loss': loss,
-            'acc': acc,        # preference accuracy: random = 0.5, a decent RM ≈ 0.65–0.75
-        }
-
-    def train_epoch(self, epoch, checkpoint_every_n_steps, peek=False, peek_every_n_steps=200, peek_pairs=None):
-        epoch_loss, epoch_acc = 0.0, 0.0
+    def train_epoch(self, epoch, checkpoint_every_n_steps, peek=False, peek_pairs=None):
         self.model.train()
+        totals, n = {}, 0
+        eval_every = max(1, len(self.dataloaders['train']) // 10)  # val + peek share one ~10% cadence (~10x/epoch)
         self.pbar = tqdm(self.dataloaders['train'], desc=f"Epoch {epoch} [train]")
         for i, batch in enumerate(self.pbar):
-            step_loss, step_acc = self.train_step(batch)
-            epoch_loss += step_loss
-            epoch_acc += step_acc
-            self.log_metrics(type='train', step=i, epoch=epoch, metrics=self.calc_metrics(step_loss, step_acc))
-            if peek and peek_pairs and i % peek_every_n_steps == 0:
-                self.peek_score(i, epoch, peek_pairs)
+            metrics = self.train_step(batch)                       # dict: loss / bt / reg / acc
+            for k, v in metrics.items():
+                totals[k] = totals.get(k, 0.0) + v
+            n += 1
+            self.log_metrics(type='train', step=i, epoch=epoch, metrics=metrics)
+            if i > 0 and i % eval_every == 0:                      # validate + peek together, every ~10%
+                self.validation(epoch, step=i)
+                if peek and peek_pairs:
+                    self.peek_score(i, epoch, peek_pairs)
+                self.model.train()                                 # validation()/peek_score leave eval — restore once
             if i > 0 and i % checkpoint_every_n_steps == 0:
-                self.checkpoint(epoch, step_loss, tag="latest")  # rolling mid-epoch save (overwrites) so a crash loses ≤N steps
+                self.checkpoint(epoch, metrics['loss'], tag="latest")  # rolling mid-epoch save (overwrites) so a crash loses ≤N steps
         self.log_metrics(type='train_epoch', step=i, epoch=epoch,
-                         metrics=self.calc_metrics(epoch_loss / (i+1), epoch_acc / (i+1)))
+                         metrics={k: v / n for k, v in totals.items()})
 
     def _score_one(self, messages):
         # tokenize one conversation -> a single scalar reward. b=1 with no padding, so the last token
@@ -97,33 +104,32 @@ class RewardModelTrainer():
         tqdm.write(f"{sep}\n")
         self.model.train()
 
-    def validation(self, epoch):
-
+    def validation(self, epoch, step=-1):
         self.model.eval()               # model mode: eval
         with torch.no_grad():           # Don't create the computation graph
-            val_loss, val_acc = 0.0, 0.0
-            for i, batch in enumerate(self.dataloaders['validation']):
-                step_loss, step_acc = self.eval_step(batch)
-                val_loss += step_loss
-                val_acc += step_acc
-            val_loss = val_loss / (i+1)
-            val_acc = val_acc / (i+1)
-            self.log_metrics(type='val', step=-1, epoch=epoch, metrics=self.calc_metrics(val_loss, val_acc))
-            return val_loss                         # returned so train() can checkpoint with the val loss
+            totals, n = {}, 0
+            for batch in self.dataloaders['validation']:
+                metrics = self.eval_step(batch)     # dict: loss / bt / reg / acc
+                for k, v in metrics.items():
+                    totals[k] = totals.get(k, 0.0) + v
+                n += 1
+            avg = {k: v / n for k, v in totals.items()}
+            self.log_metrics(type='val', step=step, epoch=epoch, metrics=avg)
+            return avg['loss']                      # returned so train() can checkpoint with the val loss
 
     def train_step(self, batch):
         self.optimizer.zero_grad()      # empty gradients
-        loss, acc = self.calculate_loss(batch)
+        loss, metrics = self.calculate_loss(batch)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)  # clip grads to tame spikes (esp. in bf16)
         self.optimizer.step()
         if self.scheduler:
             self.scheduler.step()       # advance the LR schedule once per optimizer step
-        return loss.item(), acc
+        return metrics
 
     def eval_step(self, batch):
-        loss, acc = self.calculate_loss(batch)
-        return loss.item(), acc
+        _, metrics = self.calculate_loss(batch)
+        return metrics
 
     def calculate_loss(self, batch):
         '''
@@ -141,20 +147,41 @@ class RewardModelTrainer():
         pos_logit = self.model(chosen_ids,   attention_mask=chosen_mask).logits.squeeze(-1)    # (B,)
         neg_logit = self.model(rejected_ids, attention_mask=rejected_mask).logits.squeeze(-1)  # (B,)
         margin = pos_logit - neg_logit  # (B,)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(margin, torch.ones_like(margin))
-        # loss = torch.nn.functional.cross_entropy(torch.stack([pos_logit, neg_logit], dim=1), torch.zeros(pos_logit.size(0), dtype=torch.long, device=pos_logit.device))
-        acc = (pos_logit > neg_logit).float().mean().item()   # preference accuracy (metric, not loss): fraction of pairs ranked correctly
-        return loss, acc
+
+        bt = torch.nn.functional.binary_cross_entropy_with_logits(margin, torch.ones_like(margin))  # Bradley-Terry term
+        # 2-class CE equivalent: F.cross_entropy(torch.stack([pos_logit, neg_logit], 1), zeros_long)
+
+        # reward-L2 penalty. BT depends only on the margin (r_c − r_r), so it leaves the rewards'
+        # absolute offset AND scale unconstrained — they drift and grow freely during training. Harmless
+        # for the RM itself, but PPO consumes the reward as `r_RM − β·KL(policy‖ref)`: if the reward scale
+        # balloons it swamps the KL penalty, so the policy ignores the reference and reward-hacks. This L2
+        # bounds the reward scale near 0 (→ PPO-stable, transferable β) WITHOUT changing the ranking,
+        # because it pulls r_c and r_r toward 0 symmetrically. (Offset is separately absorbed by PPO's
+        # value baseline; this term only controls scale.)
+        reg = (pos_logit.pow(2) + neg_logit.pow(2)).mean()
+        loss = bt + self.l2_reg * reg
+
+        acc = (pos_logit > neg_logit).float().mean()          # preference accuracy (metric, not loss)
+        # detached floats for logging; 'reg' is the scaled contribution (λ·reg) so bt + reg == loss
+        metrics = {
+            'loss': loss.item(), 'bt': bt.item(), 'reg': (self.l2_reg * reg).item(), 'acc': acc.item(),
+            'r_chosen': pos_logit.mean().item(),      # reward-scale diagnostics: with reg these converge
+            'r_rejected': neg_logit.mean().item(),    # toward 0 (|r| shrinks); without reg they drift/grow
+        }
+        return loss, metrics
 
     def checkpoint(self, epoch, loss, tag=None):
-        # tag="latest" overwrites a single rolling file; otherwise a kept per-epoch file
+        # tag="latest" overwrites a single rolling file; otherwise a kept per-epoch file.
+        # date-stamp the filename so today's run is distinguishable from earlier days' — and "latest"
+        # rolls *within* the day rather than clobbering yesterday's checkpoint.
         name = tag if tag else f"epoch{epoch}"
+        today = date.today().isoformat()        # e.g. 2026-06-30
         torch.save({
             "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "loss": loss,
-        }, f"{self.checkpoint_dir}/checkpoint_{name}.pt")
+        }, f"{self.checkpoint_dir}/checkpoint_{today}_{name}.pt")
 
     def log_metrics(self, type, step, epoch, metrics):
         # metrics is a dict (e.g. {"loss": ..., "acc": ...}); log every key generically so adding

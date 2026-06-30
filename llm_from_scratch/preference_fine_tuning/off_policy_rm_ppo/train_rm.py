@@ -39,6 +39,8 @@ if __name__ == "__main__":
         dataloaders=dataloaders,
         optimizer=None,            # built as AdamW(lr) inside the trainer
         lr=1e-5,                   # RMs typically train at a smaller LR than SFT (2e-5)
+        l2_reg=1e-3,               # reward-L2: bounds reward scale so PPO's reward-vs-KL balance stays sane
+        # l2_reg=0,               # reward-L2: bounds reward scale so PPO's reward-vs-KL balance stays sane
     )
 
     # RM "peek": fixed (prompt, chosen, rejected) triples. We watch r_chosen pull above r_rejected
@@ -61,5 +63,9 @@ if __name__ == "__main__":
         },
     ]
 
-    trainer.train(epochs=1, checkpoint_every_n_steps=1000,
-                  peek=True, peek_every_n_steps=200, peek_pairs=PEEK_PAIRS)
+    # to RESUME from a checkpoint instead of training fresh (load_checkpoint lives on the trainer):
+    #   epoch, loss = trainer.load_checkpoint("checkpoints/rm/checkpoint_<YYYY-MM-DD>_latest.pt")
+    # loads model + optimizer state; note it does NOT fast-forward the LR schedule or skip seen batches.
+
+    # val + peek now share one cadence (~10% of the run), set inside train_epoch — no peek_every_n_steps knob
+    trainer.train(epochs=1, checkpoint_every_n_steps=1000, peek=True, peek_pairs=PEEK_PAIRS)
